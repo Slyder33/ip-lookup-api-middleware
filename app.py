@@ -16,6 +16,3 @@ def lookup_ip():
 
     response = requests.get(f"https://api.iplocation.net/?cmd=ip-country&ip={ip}")
     return jsonify(response.json())
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
