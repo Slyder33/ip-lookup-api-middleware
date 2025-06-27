@@ -21,9 +21,53 @@ if st.button("🔍 Analyze Header"):
                 headers = {"Content-Type": "application/json"}
                 response = requests.post(url, data=json.dumps(payload), headers=headers)
 
-                if response.status_code == 200:
-                    result = response.json()
-                    st.success("✅ Header Analyzed Successfully")
+if response.status_code == 200:
+    result = response.json()
+    st.success("✅ Header Analyzed Successfully")
+
+    # ✂️ Build shareable markdown summary (clipboard & PDF friendly)
+    summary_md = f"""
+📬 **Email Header Summary**
+────────────────────────────
+🔹 Sender Name: {result.get('sender_name')}
+🔹 Real Email Address: {result.get('real_email')}
+🔹 Spoofed Address: {'❌' if not result.get('spoofed') else '✅'}
+🔹 IP Address: {result.get('ip')}
+🔹 IP Country: {result.get('country')} ({result.get('country_code')})
+🔹 IP Region: {result.get('region')}
+🔹 IP City: {result.get('city')}
+🔹 SPF Status: {'✅ Pass' if result.get('spf_status') == 'Pass' else '❌ Fail'}
+🔹 DKIM Status: {'✅ Pass' if result.get('dkim_status') == 'Pass' else '❌ Fail'}
+🔹 Domain Match: {'✅' if result.get('domain_match') else '❌'}
+🔹 Known Phishing Service: {'✅' if result.get('phishing_check') else '❌ No'}
+🔹 Safe Browsing Verdict: {'✅ Safe' if not result.get('google_safe') else '❌ Malicious'}
+🔹 Suspicion Score: {result.get('suspicion_score')} / 15
+
+🟩 **Overall Verdict:** {result.get('verdict')}
+
+📝 **Notes:**
+"""
+    for note in result.get("suspicion_notes", []):
+        summary_md += f"\n- ⚠️ {note}"
+
+    st.markdown("### 📋 Copy-Friendly Summary")
+    st.code(summary_md, language="markdown")
+
+    # Optional Export to PDF
+    if st.button("📄 Export as PDF"):
+        from io import BytesIO
+        from xhtml2pdf import pisa
+
+        def generate_pdf(content):
+            pdf_bytes = BytesIO()
+            pisa.CreatePDF(content, dest=pdf_bytes)
+            pdf_bytes.seek(0)
+            return pdf_bytes
+
+        summary_html = summary_md.replace("**", "<b>").replace("\n", "<br>")
+        pdf_data = generate_pdf(f"<html><body>{summary_html}</body></html>")
+        st.download_button("📥 Download PDF", data=pdf_data, file_name="header_report.pdf", mime="application/pdf")
+
 
                     col1, col2 = st.columns([2, 1])
                     with col1:
