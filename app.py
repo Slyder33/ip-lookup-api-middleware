@@ -3,6 +3,7 @@ import requests
 from email.parser import Parser
 import re
 import os
+
 GOOGLE_SAFE_BROWSING_KEY = os.getenv("GOOGLE_SAFE_BROWSING_KEY")
 
 app = Flask(__name__)
@@ -17,7 +18,6 @@ SCORE_WEIGHTS = {
     "geo_suspicious": 2
 }
 
-# Optional domain-specific geo-suspicion logic
 SUSPICIOUS_GEO = {
     "chase.com": ["Germany", "Russia", "China"]
 }
@@ -48,7 +48,6 @@ def score_header(data):
     domain_match = data.get("domain_match", True)
     phishing_check = data.get("phishing_check", False)
 
-    # 🧠 Expanded list of shady words
     spammy_phrases = [
         "kindly review", "urgent", "update your account", "final notice",
         "action required", "verify", "invoice", "payment pending",
@@ -76,7 +75,6 @@ def score_header(data):
         suspicion_score += 2
         notes.append("IP is associated with known phishing services")
 
-    # Verdict thresholds
     if suspicion_score >= 8:
         verdict = "Spoofed / Suspicious Header"
     elif suspicion_score >= 4:
@@ -85,7 +83,6 @@ def score_header(data):
         verdict = "Likely Legit"
 
     return suspicion_score, notes, verdict
-
 
 # 📬 Parse Email Header
 def parse_header(raw_header):
@@ -130,7 +127,6 @@ def parse_header(raw_header):
             if "dkim=pass" in lower: parsed["dkim_status"] = "Pass"
             if "dkim=fail" in lower: parsed["dkim_status"] = "Fail"
 
-        # Check for training domains
         if "knowbe4" in raw_header.lower():
             parsed["phishing_check"] = True
 
@@ -139,16 +135,11 @@ def parse_header(raw_header):
 
     return parsed
 
-# 🚀 Main Endpoint
-@app.route("/", methods=["POST"])
-
+# 🔍 Google Safe Browsing Check
 def check_safe_browsing(url):
     api_url = f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={GOOGLE_SAFE_BROWSING_KEY}"
     payload = {
-        "client": {
-            "clientId": "email-header-sleuth",
-            "clientVersion": "1.0"
-        },
+        "client": {"clientId": "email-header-sleuth", "clientVersion": "1.0"},
         "threatInfo": {
             "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING", "POTENTIALLY_HARMFUL_APPLICATION"],
             "platformTypes": ["ANY_PLATFORM"],
@@ -163,6 +154,8 @@ def check_safe_browsing(url):
         return bool(data.get("matches"))
     return False
 
+# 🚀 Main Endpoint
+@app.route("/", methods=["POST"])
 def analyze():
     data = request.get_json()
     raw_header = data.get("header")
@@ -171,31 +164,24 @@ def analyze():
 
     parsed = parse_header(raw_header)
     ip_info = fetch_ip_data(parsed["ip"]) if parsed.get("ip") else {}
-
     merged = {**parsed, **ip_info}
-    
+
+    # Check links using Safe Browsing
     if "urls" in merged:
-    malicious_urls = [
-        url for url in merged["urls"]
-        if check_safe_browsing(url)
-    ]
-    if malicious_urls:
-        merged["malicious_urls"] = malicious_urls
+        malicious_urls = [url for url in merged["urls"] if check_safe_browsing(url)]
+        if malicious_urls:
+            merged["malicious_urls"] = malicious_urls
 
-# Scoring based on malicious URLs
-score, notes = score_header(merged)
-merged["suspicion_score"] = score
-merged["suspicion_notes"] = notes
+    # Score it!
+    score, notes, verdict = score_header(merged)
+    merged["suspicion_score"] = score
+    merged["suspicion_notes"] = notes
 
-# Boost score if malicious URLs were found
-if "malicious_urls" in merged and merged["malicious_urls"]:
-    merged["suspicion_notes"].append(
-        "Malicious URL(s) detected via Google Safe Browsing."
-    )
-    merged["suspicion_score"] += len(merged["malicious_urls"])  # 1 point per URL
+    if "malicious_urls" in merged and merged["malicious_urls"]:
+        merged["suspicion_notes"].append("Malicious URL(s) detected via Google Safe Browsing.")
+        merged["suspicion_score"] += len(merged["malicious_urls"])
 
-merged["verdict"] = determine_verdict(merged["suspicion_score"])
-
+    merged["verdict"] = determine_verdict(merged["suspicion_score"])
 
     return jsonify(merged)
 
