@@ -1,9 +1,11 @@
 from flask import Flask, request, jsonify
 import requests
+from email.parser import Parser
+import re
 
 app = Flask(__name__)
 
-# Constants for scoring
+# Scoring weights
 SCORE_WEIGHTS = {
     "spoofed_email": 3,
     "dkim_fail": 2,
@@ -13,16 +15,27 @@ SCORE_WEIGHTS = {
     "geo_suspicious": 2
 }
 
-# Known suspicious countries for certain domains (e.g., US bank shouldn't send emails from Germany)
+# Optional domain-specific geo-suspicion logic
 SUSPICIOUS_GEO = {
     "chase.com": ["Germany", "Russia", "China"]
 }
 
+# 🌎 IP Geolocation Lookup
 def fetch_ip_data(ip):
     url = f"https://ipwho.is/{ip}"
     response = requests.get(url)
     return response.json() if response.status_code == 200 else {}
 
+# 🧠 Verdict Logic
+def determine_verdict(score):
+    if score >= 6:
+        return "Spoofed / Suspicious Header"
+    elif score >= 3:
+        return "Possibly Spoofed"
+    else:
+        return "Likely Legit"
+
+# 🧮 Heuristic Scoring
 def score_header(data):
     score = 0
     notes = []
@@ -47,7 +60,6 @@ def score_header(data):
         score += SCORE_WEIGHTS["phishing_service"]
         notes.append("Known phishing service")
 
-    # Geographic suspicion check
     domain = data.get("real_email", "").split("@")[-1].lower()
     country = data.get("country_name", "")
     if domain in SUSPICIOUS_GEO and country in SUSPICIOUS_GEO[domain]:
@@ -56,47 +68,77 @@ def score_header(data):
 
     return score, notes
 
-def determine_verdict(score):
-    if score >= 6:
-        return "Spoofed / Suspicious Header"
-    elif score >= 3:
-        return "Possibly Spoofed"
-    else:
-        return "Likely Legit"
-
-@app.route("/lookup-ip", methods=["POST"])
-def lookup_ip():
-    data = request.json
-    ip = data.get("ip")
-    if not ip:
-        return jsonify({"error": "Missing IP address"}), 400
-
-    ip_info = fetch_ip_data(ip)
-    if not ip_info.get("success"):
-        return jsonify({"error": "Failed to retrieve IP info"}), 500
-
-    result = {
-        "ip": ip_info.get("ip", "N/A"),
-        "country_name": ip_info.get("country", "N/A"),
-        "country_code": ip_info.get("country_code", "N/A"),
-        "region_name": ip_info.get("region", "N/A"),
-        "city": ip_info.get("city", "N/A"),
-        "real_email": data.get("real_email", "N/A"),
-        "spoofed": data.get("spoofed", False),
-        "sender_name": data.get("sender_name", "N/A"),
-        "spoofed_email": data.get("spoofed_email", "N/A"),
-        "dkim_status": data.get("dkim_status", "N/A"),
-        "spf_status": data.get("spf_status", "N/A"),
-        "domain_match": data.get("domain_match", False),
-        "phishing_check": data.get("phishing_check", False)
+# 📬 Parse Email Header
+def parse_header(raw_header):
+    parsed = {
+        "sender_name": "N/A", "real_email": "N/A",
+        "spoofed_email": None, "spoofed": False,
+        "ip": None, "dkim_status": "N/A",
+        "spf_status": "N/A", "domain_match": False,
+        "phishing_check": False
     }
 
-    score, notes = score_header(result)
-    result["verdict"] = determine_verdict(score)
-    result["suspicion_score"] = score
-    result["suspicion_notes"] = notes
+    try:
+        msg = Parser().parsestr(raw_header)
 
-    return jsonify(result)
+        from_hdr = msg.get("From", "")
+        m = re.search(r'(?P<name>.*)?<(?P<email>[^>]+)>', from_hdr)
+        if m:
+            parsed["sender_name"] = m.group("name").strip().strip('"') or "N/A"
+            parsed["real_email"] = m.group("email").strip()
+        else:
+            parsed["real_email"] = from_hdr.strip()
+
+        if "@" in parsed["real_email"]:
+            domain = parsed["real_email"].split("@")[1].lower()
+            parsed["domain_match"] = domain in from_hdr.lower()
+            if not parsed["domain_match"]:
+                parsed["spoofed_email"] = parsed["real_email"]
+                parsed["spoofed"] = True
+
+        received = msg.get_all("Received", []) or []
+        ip_pat = re.compile(r'\[?(\d{1,3}(?:\.\d{1,3}){3})\]?')
+        for line in received:
+            ipm = ip_pat.search(line)
+            if ipm:
+                parsed["ip"] = ipm.group(1)
+                break
+
+        for auth_line in msg.get_all("Authentication-Results", []) or []:
+            lower = auth_line.lower()
+            if "spf=pass" in lower: parsed["spf_status"] = "Pass"
+            if "spf=fail" in lower: parsed["spf_status"] = "Fail"
+            if "dkim=pass" in lower: parsed["dkim_status"] = "Pass"
+            if "dkim=fail" in lower: parsed["dkim_status"] = "Fail"
+
+        # Check for training domains
+        if "knowbe4" in raw_header.lower():
+            parsed["phishing_check"] = True
+
+    except Exception as e:
+        parsed["error"] = f"Header parse error: {str(e)}"
+
+    return parsed
+
+# 🚀 Main Endpoint
+@app.route("/", methods=["POST"])
+def analyze():
+    data = request.get_json()
+    raw_header = data.get("header")
+    if not raw_header:
+        return jsonify({"error": "Missing email header"}), 400
+
+    parsed = parse_header(raw_header)
+    ip_info = fetch_ip_data(parsed["ip"]) if parsed.get("ip") else {}
+
+    merged = {**parsed, **ip_info}
+
+    score, notes = score_header(merged)
+    merged["suspicion_score"] = score
+    merged["suspicion_notes"] = notes
+    merged["verdict"] = determine_verdict(score)
+
+    return jsonify(merged)
 
 if __name__ == "__main__":
     app.run(debug=True)
