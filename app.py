@@ -37,44 +37,53 @@ def determine_verdict(score):
 
 # 🧮 Heuristic Scoring
 def score_header(data):
-    score = 0
+    suspicion_score = 0
     notes = []
 
-    if data.get("spoofed"):
-        score += SCORE_WEIGHTS["spoofed_email"]
-        notes.append("Spoofed sender")
+    sender_name = data.get("sender_name", "").lower()
+    spf_status = data.get("spf_status", "")
+    dkim_status = data.get("dkim_status", "")
+    domain_match = data.get("domain_match", True)
+    phishing_check = data.get("phishing_check", False)
 
-    if data.get("dkim_status", "").lower() == "fail":
-        score += SCORE_WEIGHTS["dkim_fail"]
-        notes.append("DKIM failed")
+    # 🧠 Expanded list of shady words
+    spammy_phrases = [
+        "kindly review", "urgent", "update your account", "final notice",
+        "action required", "verify", "invoice", "payment pending",
+        "you have won", "click here", "immediate attention", "confirm now",
+        "reset your password", "suspended", "security alert", "claim prize"
+    ]
 
-    if data.get("spf_status", "").lower() == "fail":
-        score += SCORE_WEIGHTS["spf_fail"]
+    if any(word in sender_name for word in spammy_phrases):
+        suspicion_score += 4
+        notes.append(f"Suspicious sender name: {data.get('sender_name', 'N/A')}")
+
+    if spf_status.lower() != "pass":
+        suspicion_score += 3
         notes.append("SPF failed")
 
-    if not data.get("domain_match"):
-        score += SCORE_WEIGHTS["domain_mismatch"]
-        notes.append("Domain mismatch")
+    if dkim_status.lower() != "pass":
+        suspicion_score += 3
+        notes.append("DKIM failed")
 
-    if data.get("phishing_check"):
-        score += SCORE_WEIGHTS["phishing_service"]
-        notes.append("Known phishing service")
+    if not domain_match:
+        suspicion_score += 2
+        notes.append("From domain does not match originating domain")
 
-    domain = data.get("real_email", "").split("@")[-1].lower()
-    country = data.get("country_name", "")
-   
-    spammy_phrases = ["urgent", "kindly", "verify", "review", "attention", "immediate"]
-    
-    if domain in SUSPICIOUS_GEO and country in SUSPICIOUS_GEO[domain]:
-        score += SCORE_WEIGHTS["geo_suspicious"]
-        notes.append(f"Suspicious geography: {country}")
-       
-    sender_name = data.get("sender_name", "").lower()
-    if any(word in sender_name for word in spammy_phrases):
-        score += 2
-        notes.append(f"Suspicious sender name: {data.get('sender_name')}")
+    if phishing_check:
+        suspicion_score += 2
+        notes.append("IP is associated with known phishing services")
 
-    return score, notes
+    # Verdict thresholds
+    if suspicion_score >= 8:
+        verdict = "Spoofed / Suspicious Header"
+    elif suspicion_score >= 4:
+        verdict = "Possibly Spoofed"
+    else:
+        verdict = "Likely Legit"
+
+    return suspicion_score, notes, verdict
+
 
 # 📬 Parse Email Header
 def parse_header(raw_header):
