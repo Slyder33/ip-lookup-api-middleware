@@ -2,6 +2,8 @@ import streamlit as st
 import requests
 import json
 from streamlit_extras.badges import badge
+from io import BytesIO
+from xhtml2pdf import pisa
 
 st.set_page_config(page_title="Email Header Sleuth", page_icon="🕵️", layout="wide")
 st.title("🕵️ Email Header Sleuth")
@@ -21,12 +23,12 @@ if st.button("🔍 Analyze Header"):
                 headers = {"Content-Type": "application/json"}
                 response = requests.post(url, data=json.dumps(payload), headers=headers)
 
-if response.status_code == 200:
-    result = response.json()
-    st.success("✅ Header Analyzed Successfully")
+                if response.status_code == 200:
+                    result = response.json()
+                    st.success("✅ Header Analyzed Successfully")
 
-    # ✂️ Build shareable markdown summary (clipboard & PDF friendly)
-    summary_md = f"""
+                    # Markdown summary
+                    summary_md = f"""
 📬 **Email Header Summary**
 ────────────────────────────
 🔹 Sender Name: {result.get('sender_name')}
@@ -47,28 +49,24 @@ if response.status_code == 200:
 
 📝 **Notes:**
 """
-    for note in result.get("suspicion_notes", []):
-        summary_md += f"\n- ⚠️ {note}"
+                    for note in result.get("suspicion_notes", []):
+                        summary_md += f"\n- ⚠️ {note}"
 
-    st.markdown("### 📋 Copy-Friendly Summary")
-    st.code(summary_md, language="markdown")
+                    st.markdown("### 📋 Copy-Friendly Summary")
+                    st.code(summary_md, language="markdown")
 
-    # Optional Export to PDF
-    if st.button("📄 Export as PDF"):
-        from io import BytesIO
-        from xhtml2pdf import pisa
+                    if st.button("📄 Export as PDF"):
+                        def generate_pdf(content):
+                            pdf_bytes = BytesIO()
+                            pisa.CreatePDF(content, dest=pdf_bytes)
+                            pdf_bytes.seek(0)
+                            return pdf_bytes
 
-        def generate_pdf(content):
-            pdf_bytes = BytesIO()
-            pisa.CreatePDF(content, dest=pdf_bytes)
-            pdf_bytes.seek(0)
-            return pdf_bytes
+                        summary_html = summary_md.replace("**", "<b>").replace("\n", "<br>")
+                        pdf_data = generate_pdf(f"<html><body>{summary_html}</body></html>")
+                        st.download_button("📥 Download PDF", data=pdf_data, file_name="header_report.pdf", mime="application/pdf")
 
-        summary_html = summary_md.replace("**", "<b>").replace("\n", "<br>")
-        pdf_data = generate_pdf(f"<html><body>{summary_html}</body></html>")
-        st.download_button("📥 Download PDF", data=pdf_data, file_name="header_report.pdf", mime="application/pdf")
-
-
+                    # Split UI
                     col1, col2 = st.columns([2, 1])
                     with col1:
                         st.markdown("## 🧪 Technical Analysis")
@@ -84,7 +82,7 @@ if response.status_code == 200:
                         st.markdown(f"**Domain Match:** {'✅ True' if result.get('domain_match') else '❌ False'}")
                         st.markdown(f"**Phishing Service Known:** {'✅' if result.get('phishing_check') else '❌'}")
                         st.markdown(f"**Safe Browsing Verdict:** {'✅ Safe' if not result.get('google_safebrowsing_flag') else '❌ Malicious'}")
-                        st.markdown(f"**Suspicion Score:** ` {result['suspicion_score']} / 15 `")
+                        st.markdown(f"**Suspicion Score:** `{result.get('suspicion_score')} / 15`")
 
                     with col2:
                         st.markdown("## 📋 Summary Report")
@@ -95,6 +93,5 @@ if response.status_code == 200:
 
                 else:
                     st.error("❌ Failed to analyze the header.")
-
             except Exception as e:
-                st.error(f"An error occurred: {str(e)}")
+                st.error(f"💥 An error occurred: {str(e)}")
