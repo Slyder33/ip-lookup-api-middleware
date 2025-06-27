@@ -175,7 +175,7 @@ def analyze():
     merged = {**parsed, **ip_info}
     
     if "urls" in merged:
-    malicious_urls = []
+        malicious_urls = []
     for url in merged["urls"]:
         if check_safe_browsing(url):
             malicious_urls.append(url)
