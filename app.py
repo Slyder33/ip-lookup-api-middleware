@@ -27,6 +27,32 @@ def fetch_ip_data(ip):
     url = f"https://ipwho.is/{ip}"
     response = requests.get(url)
     return response.json() if response.status_code == 200 else {}
+from ipwhois import IPWhois
+import socket
+
+def get_asn_info(ip):
+    try:
+        obj = IPWhois(ip)
+        res = obj.lookup_rdap(depth=1)
+        return {
+            "asn": res.get("asn", "N/A"),
+            "asn_description": res.get("asn_description", "N/A"),
+            "network_name": res.get("network", {}).get("name", "N/A"),
+        }
+    except Exception:
+        return {"asn": "N/A", "asn_description": "N/A", "network_name": "N/A"}
+
+def get_reverse_dns(ip):
+    try:
+        hostname, _, _ = socket.gethostbyaddr(ip)
+        return hostname
+    except Exception:
+        return "N/A"
+
+def is_suspicious_tld(email):
+    risky_tlds = ['.tk', '.ru', '.cn', '.ml', '.ga', '.cf']
+    domain = email.split('@')[-1].lower()
+    return any(domain.endswith(tld) for tld in risky_tlds)
 
 # 🧠 Verdict Logic
 def determine_verdict(score):
@@ -75,14 +101,25 @@ def score_header(data):
         suspicion_score += 2
         notes.append("IP is associated with known phishing services")
 
-    if suspicion_score >= 8:
-        verdict = "Spoofed / Suspicious Header"
-    elif suspicion_score >= 4:
-        verdict = "Possibly Spoofed"
-    else:
-        verdict = "Likely Legit"
+    # ✅ Add TLD check
+    if is_suspicious_tld(data.get("real_email", "")):
+        suspicion_score += 2
+        notes.append("Suspicious TLD detected")
 
-    return suspicion_score, notes, verdict
+    # ✅ Add reverse DNS insight
+    reverse_dns = get_reverse_dns(data.get("ip", ""))
+    if reverse_dns != "N/A":
+        notes.append(f"Reverse DNS: {reverse_dns}")
+        if any(word in reverse_dns for word in ["compute", "amazonaws", "vultr", "ovh", "contabo"]):
+            suspicion_score += 2
+            notes.append("Reverse DNS points to cloud host (possible automation)")
+
+    # ✅ Add ASN info
+    asn_data = get_asn_info(data.get("ip", ""))
+    notes.append(f"ASN: {asn_data['asn']} ({asn_data['asn_description']})")
+
+    # ✅ Verdict here can be used but not returned (we’ll call determine_verdict separately)
+    return suspicion_score, notes, determine_verdict(suspicion_score)
 
 # 📬 Parse Email Header
 def parse_header(raw_header):
