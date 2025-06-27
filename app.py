@@ -62,10 +62,13 @@ def score_header(data):
 
     domain = data.get("real_email", "").split("@")[-1].lower()
     country = data.get("country_name", "")
+   
+    spammy_phrases = ["urgent", "kindly", "verify", "review", "attention", "immediate"]
+    
     if domain in SUSPICIOUS_GEO and country in SUSPICIOUS_GEO[domain]:
         score += SCORE_WEIGHTS["geo_suspicious"]
         notes.append(f"Suspicious geography: {country}")
-        spammy_phrases = ["urgent", "kindly", "verify", "review", "attention", "immediate"]
+       
     sender_name = data.get("sender_name", "").lower()
     if any(word in sender_name for word in spammy_phrases):
         score += 2
