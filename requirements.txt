@@ -2,3 +2,4 @@ flask
 requests
 streamlit
 streamlit-extras
+ipwhois
