@@ -175,7 +175,7 @@ def analyze():
     merged = {**parsed, **ip_info}
     
     if "urls" in merged:
-    merged["malicious_urls"] = [url for url in merged["urls"] if check_safe_browsing(url)]
+        merged["malicious_urls"] = [url for url in merged["urls"] if check_safe_browsing(url)]
 
     score, notes = score_header(merged)
     merged["suspicion_score"] = score
@@ -183,8 +183,8 @@ def analyze():
     
     # After identifying malicious URLs
     if "malicious_urls" in merged and merged["malicious_urls"]:
-    merged["suspicion_notes"].append("Malicious URL(s) detected via Google Safe Browsing.")
-    merged["suspicion_score"] += len(merged["malicious_urls"])  # 1 point per bad link (or adjust to your liking)
+        merged["suspicion_notes"].append("Malicious URL(s) detected via Google Safe Browsing.")
+        merged["suspicion_score"] += len(merged["malicious_urls"])  # 1 point per bad link (or adjust to your liking)
 
     merged["verdict"] = determine_verdict(score)
 
