@@ -65,6 +65,11 @@ def score_header(data):
     if domain in SUSPICIOUS_GEO and country in SUSPICIOUS_GEO[domain]:
         score += SCORE_WEIGHTS["geo_suspicious"]
         notes.append(f"Suspicious geography: {country}")
+        spammy_phrases = ["urgent", "kindly", "verify", "review", "attention", "immediate"]
+    sender_name = data.get("sender_name", "").lower()
+    if any(word in sender_name for word in spammy_phrases):
+        score += 2
+        notes.append(f"Suspicious sender name: {data.get('sender_name')}")
 
     return score, notes
 
