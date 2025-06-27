@@ -1,4 +1,3 @@
-
 import streamlit as st
 import requests
 import json
@@ -40,6 +39,7 @@ if st.button("🔍 Analyze Header"):
                         st.markdown(f"**DKIM Status:** {'✅ Pass' if result.get('dkim_status') == 'Pass' else '❌ Fail'}")
                         st.markdown(f"**Domain Match:** {'✅ True' if result.get('domain_match') else '❌ False'}")
                         st.markdown(f"**Phishing Service Known:** {'✅' if result.get('phishing_check') else '❌'}")
+                        st.markdown(f"**Safe Browsing Verdict:** {'✅ Safe' if not result.get('google_safebrowsing_flag') else '❌ Malicious'}")
                         st.markdown(f"**Suspicion Score:** ` {result['suspicion_score']} / 15 `")
 
                     with col2:
