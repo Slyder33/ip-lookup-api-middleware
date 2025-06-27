@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify
 import requests
 from email.parser import Parser
 import re
+import os
+GOOGLE_SAFE_BROWSING_KEY = os.getenv("GOOGLE_SAFE_BROWSING_KEY")
 
 app = Flask(__name__)
 
@@ -139,6 +141,28 @@ def parse_header(raw_header):
 
 # 🚀 Main Endpoint
 @app.route("/", methods=["POST"])
+
+def check_safe_browsing(url):
+    api_url = f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={GOOGLE_SAFE_BROWSING_KEY}"
+    payload = {
+        "client": {
+            "clientId": "email-header-sleuth",
+            "clientVersion": "1.0"
+        },
+        "threatInfo": {
+            "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING", "POTENTIALLY_HARMFUL_APPLICATION"],
+            "platformTypes": ["ANY_PLATFORM"],
+            "threatEntryTypes": ["URL"],
+            "threatEntries": [{"url": url}]
+        }
+    }
+    headers = {"Content-Type": "application/json"}
+    response = requests.post(api_url, json=payload, headers=headers)
+    if response.status_code == 200:
+        data = response.json()
+        return bool(data.get("matches"))
+    return False
+
 def analyze():
     data = request.get_json()
     raw_header = data.get("header")
@@ -149,10 +173,19 @@ def analyze():
     ip_info = fetch_ip_data(parsed["ip"]) if parsed.get("ip") else {}
 
     merged = {**parsed, **ip_info}
+    
+    if "urls" in merged:
+    merged["malicious_urls"] = [url for url in merged["urls"] if check_safe_browsing(url)]
 
     score, notes = score_header(merged)
     merged["suspicion_score"] = score
     merged["suspicion_notes"] = notes
+    
+    # After identifying malicious URLs
+    if "malicious_urls" in merged and merged["malicious_urls"]:
+    merged["suspicion_notes"].append("Malicious URL(s) detected via Google Safe Browsing.")
+    merged["suspicion_score"] += len(merged["malicious_urls"])  # 1 point per bad link (or adjust to your liking)
+
     merged["verdict"] = determine_verdict(score)
 
     return jsonify(merged)
